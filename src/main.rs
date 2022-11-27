@@ -1,5 +1,13 @@
+use std::f32::consts::PI;
+
 use bevy::prelude::*;
 use bevy_inspector_egui::WorldInspectorPlugin;
+
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+pub struct Tower {
+    pub shooting_timer: Timer,
+}
 
 // Screen width and height
 pub const WIDTH: f32 = 1280.0;
@@ -7,9 +15,8 @@ pub const HEIGHT: f32 = 720.0;
 
 fn main() {
     App::new()
+        // Window Setup
         .insert_resource(ClearColor(Color::hsl(0.0, 0.0, 0.2)))
-        .add_startup_system(spawn_basic_scene)
-        .add_startup_system(spawn_basic_camera)
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             window: WindowDescriptor {
                 width: WIDTH,
@@ -22,6 +29,12 @@ fn main() {
         }))
         // Inspector Setup
         .add_plugin(WorldInspectorPlugin::new())
+        .register_type::<Tower>()
+        // Our Systems
+        .add_startup_system(spawn_basic_scene)
+        .add_startup_system(spawn_basic_camera)
+        .add_system(tower_shooting_system)
+        .add_system(bullet_despawn_system)
         .run();
 }
 
@@ -49,6 +62,9 @@ fn spawn_basic_scene(
             transform: Transform::from_xyz(0.0, 0.5, 0.0),
             ..default()
         })
+        .insert(Tower {
+            shooting_timer: Timer::from_seconds(1.0, TimerMode::Repeating),
+        })
         .insert(Name::new("Tower"));
 
     // Spawn a point light
@@ -71,4 +87,55 @@ fn spawn_basic_camera(mut commands: Commands) {
         transform: Transform::from_xyz(-2.0, 2.5, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
         ..default()
     });
+}
+
+/// System for tower shooting
+fn tower_shooting_system(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut towers: Query<&mut Tower>,
+    time: Res<Time>,
+) {
+    for mut tower in &mut towers {
+        tower.shooting_timer.tick(time.delta());
+        if tower.shooting_timer.just_finished() {
+            // spawn a bullet
+            let spawn_transfrom =
+                Transform::from_xyz(0.0, 0.7, 0.6).with_rotation(Quat::from_rotation_y(-PI / 2.0));
+
+            commands
+                .spawn(PbrBundle {
+                    mesh: meshes.add(Mesh::from(shape::Cube { size: 0.1 })),
+                    material: materials.add(Color::rgb(0.87, 0.44, 0.42).into()),
+                    transform: spawn_transfrom,
+                    ..default()
+                })
+                .insert(Lifetime {
+                    timer: Timer::from_seconds(0.5, TimerMode::Once),
+                })
+                .insert(Name::new("Bullet"));
+        }
+    }
+}
+
+/// A lifetime component
+#[derive(Component, Reflect, Default)]
+#[reflect(Component)]
+pub struct Lifetime {
+    pub timer: Timer,
+}
+
+/// A bullet despawn system
+fn bullet_despawn_system(
+    mut commands: Commands,
+    mut bullets: Query<(Entity, &mut Lifetime)>,
+    time: Res<Time>,
+) {
+    for (entity, mut lifetime) in &mut bullets {
+        lifetime.timer.tick(time.delta());
+        if lifetime.timer.just_finished() {
+            commands.entity(entity).despawn_recursive();
+        }
+    }
 }
